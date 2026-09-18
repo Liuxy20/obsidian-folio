@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>页间 Folio · 文档编辑工作台</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="页间首页"><span class="brand-mark">页</span><strong>页间 <i>Folio</i></strong><span class="prototype">本地试用版</span></a>
+    <div class="top-actions"><span id="save-state" class="save-state">正在打开…</span><button id="export">导出 HTML ↗</button><button id="save" class="primary">保存文档 <kbd>⌘ S</kbd></button></div>
+  </header>
+  <main class="workspace">
+    <aside class="navigation">
+      <div class="eyebrow">你的工作区</div><div class="section-heading"><h2>文档</h2><button id="import" class="icon-button" title="导入静态 HTML" aria-label="导入 HTML">＋</button></div>
+      <div id="documents" class="document-list"></div><input id="file" type="file" accept=".html,.htm,text/html" hidden>
+      <div class="howto"><div class="eyebrow">像审稿一样改页面</div><p><span>01</span> 点中想改的地方</p><p><span>02</span> 在旁边留一句话</p><p><span>03</span> 让 Codex 动手改</p></div>
+      <div class="navigation-bottom"><span class="local-dot"></span> 文件保存在本机<p>先把想法写下来。<br>让 AI 把想法变成修改。</p><button id="history">↶ 保存历史</button><br><button id="recover-list">↺ 找回未保存草稿</button></div>
+    </aside>
+    <section class="stage" aria-label="文档画布">
+      <div class="stage-toolbar"><div class="breadcrumbs">工作区 <span>/</span> <strong id="doc-title">文档</strong></div><div class="editing-tools"><button id="undo" title="撤销草稿修改">↶ 撤销</button><button id="redo" title="重做草稿修改">↷</button><span class="divider"></span><span class="annotation-mode">● 点选留言</span></div></div>
+      <div id="recovery-banner" class="recovery-banner" hidden><span id="recovery-message"></span><button id="drop-draft">舍弃草稿</button></div>
+      <div class="paper-meta"><span>文档画布</span><span id="canvas-hint">点击文字、按钮或图片，就地留言</span></div>
+      <div class="paper-wrap"><iframe id="document-frame" title="可批注文档" sandbox="allow-scripts"></iframe></div>
+      <div class="stage-footer"><span>点击元素 · 留言批注</span><span>草稿可撤销 · 保存后可恢复</span></div>
+    </section>
+    <aside class="inspector">
+      <div class="eyebrow">ANNOTATE / LET AI EDIT</div><h1>指给 AI 看，<br><em>让它来改。</em></h1><p class="intro">点击页面上的具体位置，在旁边留言。<br>可以攒几条，一起交给 Codex。</p>
+      <div class="notes-header"><h2>修改留言</h2><span id="note-count">00</span></div>
+      <div id="notes-empty" class="notes-empty"><span>⌖</span><strong>从点击页面开始</strong><p>试试点击大标题，然后留言：<br>“字号小一点，改成深绿色。”</p></div>
+      <div id="annotations" aria-label="留言列表"></div>
+      <label class="check"><input id="preserve" type="checkbox" checked> 保留原文数字</label>
+      <button id="generate" class="primary generate"><span id="generate-label">让 Codex 执行留言</span><span>↗</span></button><button id="cancel" hidden>停止执行</button>
+      <div id="progress" class="progress" role="status" hidden></div>
+      <section id="proposal" class="proposal" hidden><div class="eyebrow">AI 已完成 · 待你审阅</div><p id="proposal-summary"></p><button id="preview-proposal" class="wide">查看修改效果 ↗</button><div class="proposal-actions"><button id="discard">舍弃这批修改</button><button id="accept" class="primary">采用修改</button></div><div id="diff" class="diff"></div></section>
+      <div class="connection"><span id="connection-dot" class="local-dot"></span><div><strong id="connection-title">检测本地 Codex…</strong><p id="connection-detail">使用你自己的模型配置</p></div></div>
+    </aside>
+  </main>
+  <div id="notice" role="status" hidden><span id="notice-text"></span><button id="dismiss" aria-label="关闭提示">×</button></div>
+  <dialog id="preview-dialog"><div class="dialog-header"><div><span class="eyebrow">修改对照</span><h2>先看效果，再决定</h2></div><button data-close="preview-dialog">关闭 ×</button></div><div class="review-nav"><button id="review-prev" aria-label="上一条修改">← 上一条</button><label for="review-change" class="sr-only">选择要审阅的修改</label><select id="review-change"></select><span id="review-position"></span><button id="review-next" aria-label="下一条修改">下一条 →</button></div><p id="review-context" class="muted"></p><div class="compare"><div><h3>生成时的原文</h3><iframe id="before-frame" title="修改前" sandbox="allow-scripts"></iframe></div><div><h3>建议效果</h3><iframe id="after-frame" title="修改后" sandbox="allow-scripts"></iframe></div></div><p class="muted">预览尚未应用。关闭后点击「采用修改」，即可写入草稿。</p></dialog>
+  <dialog id="history-dialog"><div class="dialog-header"><div><span class="eyebrow">本地版本</span><h2>找回保存前的内容</h2></div><button data-close="history-dialog">关闭 ×</button></div><p class="muted">恢复会替换当前草稿；点击保存后才写入文件。</p><div id="versions"></div></dialog>
+<dialog id="recovery-dialog"><div class="dialog-header"><div><span class="eyebrow">自动暂存 · 尚未写入文件</span><h2>找回未保存的修改</h2></div><button data-close="recovery-dialog">关闭 ×</button></div><p id="recovery-explanation" class="muted"></p><div id="recovery-records"></div></dialog>
+</body></html>

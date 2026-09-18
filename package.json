@@ -1,0 +1,37 @@
+{
+  "name": "obsidian-folio",
+  "version": "0.3.5",
+  "private": true,
+  "type": "module",
+  "description": "Inline Markdown and HTML comments, questions and reviewed Codex edits in Obsidian.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Liuxy20/obsidian-folio.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.mjs",
+    "test:browser": "node tests/browser.mjs",
+    "test:recovery": "node tests/recovery-browser.mjs",
+    "test:codex": "node tests/codex-smoke.mjs",
+    "test:obsidian:live": "node tests/obsidian-live.mjs",
+    "build:obsidian": "node scripts/build-obsidian.mjs",
+    "check:privacy": "node scripts/scan-public.mjs ."
+  },
+  "dependencies": {
+    "diff": "^8.0.0",
+    "markdown-it": "^14.3.2",
+    "parse5": "^8.0.0",
+    "smol-toml": "^1.4.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.13.1",
+    "playwright": "^1.55.0"
+  }
+}

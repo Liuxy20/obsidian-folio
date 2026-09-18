@@ -1,0 +1,10 @@
+{
+  "id": "folio-codex",
+  "name": "Folio Codex · 页间",
+  "version": "0.3.5",
+  "minAppVersion": "1.5.0",
+  "description": "选中 Markdown 提问或修改，HTML 点选批注；沿用本机 Codex，审阅后保存。",
+  "author": "Liuxy20",
+  "isDesktopOnly": true,
+  "authorUrl": "https://github.com/Liuxy20"
+}
