@@ -1,6 +1,6 @@
 import { renderAnswer } from './answer-markdown.js';
 
-// Use the inert Markdown renderer for captured text in both reading surfaces.
+// All three entry points share the same inert Markdown source preview.
 export function renderSourcePreview(container, source, {title='关联笔记原文', className=''}={}) {
   const box=container.createDiv({cls:`folio-card-edit-target ${className}`.trim()});
   const header=box.createDiv({cls:'folio-card-target-header'});

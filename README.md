@@ -6,7 +6,11 @@
 
 > Folio lets you comment on Markdown and HTML in Obsidian, ask questions with inline answers, and review AI edits before saving. It uses your own local Codex CLI and provider configuration. See [Privacy](PRIVACY.md) before submitting content.
 
-## 0.4.6：引用追问、重答与原文修订
+## 0.4.7：补齐点选浮窗的原文预览
+
+首次点选正文后的提问／修改浮窗，现在也会完整渲染 Markdown，支持上下、左右滚动和拖动调高。浮窗、卡片和侧栏共用预览组件；表格绿色选框改为向内绘制，修复左侧边线被裁掉的问题。
+
+## 引用追问、重答与原文修订
 
 讨论按旧到新展示，历史问答在上，新追问在下。长回答随正文滚动，手动折叠状态在重载后保留；卡片可导出全部轮次为独立笔记，弹窗中可修改保存目录与文件名。卡片里的“继续追问”直接展开输入，可切换“继续提问 / 让 AI 重答 / 修改笔记原文”；选中 AI 回答片段可点“引用追问”，草稿连同引用自动保留。修改生成后点“预览并保存”，确认采用才写入。阅读时侧栏按需打开：笔记顶部“审稿与历史”或卡片“查看详情与引用”，用完可收起。
 
@@ -33,7 +37,7 @@ Review notes in place: AI leaves anchored comments, you discuss them in a thread
 ## 安装测试版
 
 1. 安装并配置可正常使用的 [Codex CLI](https://developers.openai.com/codex/cli/)。Folio 沿用本地登录或 provider 配置，不提供模型额度，也不需要你把 API key 填进插件。
-2. 从 [Releases](https://github.com/Liuxy20/obsidian-folio/releases) 下载 `folio-codex-0.4.6.zip`，将其中的 `folio-codex` 文件夹放进笔记库 `.obsidian/plugins/`。
+2. 从 [Releases](https://github.com/Liuxy20/obsidian-folio/releases) 下载 `folio-codex-0.4.7.zip`，将其中的 `folio-codex` 文件夹放进笔记库 `.obsidian/plugins/`。
 3. 重启 Obsidian，在“设置 → 社区插件”启用 **Folio Codex · 页间**。
 4. 打开一篇 Markdown 笔记，点击左侧页间，点中段落后选择“提问”或“修改”。
 

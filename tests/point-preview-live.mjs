@@ -1,0 +1,46 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {mkdir,writeFile} from 'node:fs/promises';
+const root=process.env.FOLIO_REVIEW_TEST_ROOT||'/private/tmp/folio-review-native',path='首次点选浮窗测试.md';
+const source=['# 浮窗预览示例','','| 技能 | 用途 | 来源 | 说明 | 补充 |','| --- | --- | --- | --- | --- |',...Array.from({length:12},(_,i)=>`| **技能 ${i+1}** | 查看页面与分析资料 | 官方文档 | ${'说明内容'.repeat(10)} | \`sample-${i+1}\` |`),'','后续正文保持不变。'].join('\n');
+const browser=await chromium.connectOverCDP('http://127.0.0.1:9236'),page=browser.contexts()[0].pages().find(p=>p.url().startsWith('app://obsidian.md/'));
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+try{
+ assert.equal(await page.evaluate(()=>app.vault.adapter.getBasePath()),root+'/.test-vault');await mkdir(root+'/test-results',{recursive:true});
+ await page.evaluate(async({path,source})=>{
+  await app.plugins.unloadPlugin('folio-codex');await app.plugins.loadPlugin('folio-codex');const p=app.plugins.plugins['folio-codex'];await p.ready;
+  for(const v of [...p.noteViews])v.leaf.detach();const f=app.vault.getAbstractFileByPath(path);if(f)await app.vault.modify(f,source);else await app.vault.create(path,source);
+  await p.state.mutate(d=>{delete d.notes?.[path];});app.workspace.rightSplit.collapse();await p.openNote(app.vault.getAbstractFileByPath(path));
+ },{path,source});
+ const table=page.locator('.folio-note-point-mode table').first();await table.click({position:{x:30,y:20}});await page.locator('[data-note-action="ask"]').waitFor();
+ const outline=page.locator('.folio-note-point-selected > :not([data-folio-note-ui])').first();
+ assert.equal(await outline.evaluate(e=>getComputedStyle(e).outlineOffset),'-2px');
+ const area=await outline.boundingBox(),viewport=page.viewportSize()||await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
+ const toolbarBounds=await page.locator('.folio-note-point-tools').boundingBox();
+ const strip=await page.screenshot({clip:{x:Math.max(0,Math.floor(area.x)-3),y:Math.max(100,Math.ceil(area.y)+15,Math.ceil(toolbarBounds.y+toolbarBounds.height)+10),width:10,height:30}});
+ const green=await page.evaluate(async b64=>{const image=new Image();image.src='data:image/png;base64,'+b64;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const c=canvas.getContext('2d');c.drawImage(image,0,0);const pixels=c.getImageData(0,0,image.width,image.height).data;let count=0;for(let i=0;i<pixels.length;i+=4)if(Math.abs(pixels[i]-81)<3&&Math.abs(pixels[i+1]-122)<3&&Math.abs(pixels[i+2]-98)<3)count++;return count;},strip.toString('base64'));
+ assert.ok(green>=20,`left outline has ${green} green pixels`);
+ await page.locator('[data-note-action="ask"]').click();const popup=page.locator('.folio-inline-composer'),preview=popup.locator('.folio-card-target-preview');await preview.waitFor();
+ assert.equal(await preview.locator('tbody tr').count(),12);assert.equal(await preview.locator('code').last().textContent(),'sample-12');assert.equal(await preview.locator('strong').last().textContent(),'技能 12');
+ assert.equal(await popup.locator('.folio-inline-excerpt').count(),0);
+ await preview.hover();await page.mouse.wheel(0,220);await page.waitForFunction(()=>document.querySelector('.folio-floating-source .folio-card-target-preview').scrollTop>0);
+ await page.mouse.wheel(250,0);await page.waitForFunction(()=>document.querySelector('.folio-floating-source .folio-card-target-preview').scrollLeft>0);
+ await preview.evaluate(e=>{e.scrollTop=0;e.scrollLeft=0;});
+ const initial=await preview.evaluate(e=>e.clientHeight),rect=await preview.boundingBox();await page.mouse.move(rect.x+rect.width-3,rect.y+rect.height-3);await page.mouse.down();await page.mouse.move(rect.x+rect.width-3,rect.y+rect.height+65,{steps:10});await page.mouse.up();
+ await page.waitForFunction(initial=>document.querySelector('.folio-floating-source .folio-card-target-preview').clientHeight>initial+30,initial);
+ await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+ const bounds=await popup.boundingBox();assert.ok(bounds.y>=0&&bounds.y+bounds.height<=viewport.height+1);assert.equal(await popup.locator('.folio-inline-send').isVisible(),true);
+ await popup.locator('textarea').fill('请解释这张表');await page.screenshot({path:root+'/test-results/point-preview-ask.png'});
+ await popup.getByRole('button',{name:'收起输入，保留草稿'}).click();assert.equal(await page.evaluate(()=>app.plugins.plugins['folio-codex'].pointSelect.composerObserver===null),true);
+ await page.locator('[data-note-action="ask"]').click();assert.equal(await popup.locator('textarea').inputValue(),'请解释这张表');assert.equal(await preview.locator('tbody tr').count(),12);
+ await popup.getByRole('button',{name:'收起输入，保留草稿'}).click();await page.locator('[data-note-action="edit"]').click();await preview.locator('tbody tr').last().waitFor();assert.equal(await preview.locator('tbody tr').count(),12);assert.equal(await popup.locator('input[type="checkbox"]').count(),1);
+ await page.screenshot({path:root+'/test-results/point-preview-edit.png'});
+ await page.evaluate(()=>app.plugins.plugins['folio-codex'].pointSelect.clearSelection());assert.equal(await popup.count(),0);assert.equal(await page.evaluate(()=>app.plugins.plugins['folio-codex'].pointSelect.composerObserver===null),true);
+ await page.evaluate(()=>{app.plugins.plugins['folio-codex'].noteGenerate=async()=>({answer:'这张表列出示例技能。',citations:[]});});
+ await table.click({position:{x:30,y:20}});await page.locator('[data-note-action="ask"]').click();await popup.locator('textarea').fill('解释表格');await popup.locator('.folio-inline-send').click();
+ await page.waitForFunction(path=>app.plugins.plugins['folio-codex'].state.data.notes[path]?.records[0]?.state==='answered',path);
+ const card=page.locator('.folio-inline-card');if(!await card.evaluate(e=>e.open))await card.locator(':scope > summary').click();await card.locator('.folio-inline-reply').click();await page.locator('.folio-card-composer [data-mode="edit"]').click();
+ assert.equal(await page.locator('.folio-card-composer .folio-card-target-preview tbody tr').count(),12);
+ assert.equal(await page.evaluate(path=>app.vault.read(app.vault.getAbstractFileByPath(path)),path),source);assert.deepEqual(errors,[]);
+ const result={fullTableRows:12,cardPreviewRows:12,markdownFormatting:true,verticalWheel:true,horizontalWheel:true,dragResize:true,popupWithinViewport:true,leftOutlineGreenPixels:green,askAndEdit:true,draftReopen:true,observerCleanup:true,noteUnchanged:true,pageErrors:0};await writeFile(root+'/test-results/point-preview-result.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+}catch(error){await page.screenshot({path:root+'/test-results/point-preview-failure.png'});throw error;}finally{await browser.close();}

@@ -3,6 +3,7 @@ import { captureSection } from './notes.js';
 import { hash, UserError } from '../server/documents.js';
 import { InlineNotes } from './inline-notes.js';
 import { relocateCapture } from './review.js';
+import { renderSourcePreview } from './source-preview.js';
 
 
 export class NotePointSelect {
@@ -83,7 +84,7 @@ export class NotePointSelect {
     const header=box.createDiv({cls:'folio-inline-composer-header'});
     header.createEl('strong',{text:mode==='ask'?'问问这段内容':'让 AI 修改这段'});
     const close=header.createEl('button',{text:'×',attr:{'aria-label':'收起输入，保留草稿'}});close.onclick=()=>this.closeComposer();
-    box.createDiv({cls:'folio-inline-excerpt',text:capture.expected.slice(0,90)+(capture.expected.length>90?'…':'')});
+    renderSourcePreview(box,capture.expected,{title:'所选笔记原文',className:'folio-floating-source'});
     const input=box.createEl('textarea',{attr:{'aria-label':'原地留言',placeholder:mode==='ask'?'这段是什么意思？有什么依据？':'希望怎么修改这段内容？',rows:'3',maxlength:'2000'}});input.value=panel.message;
     input.oninput=()=>{panel.message=input.value;const side=panel.contentEl.querySelector('textarea');if(side)side.value=input.value;panel.persist().catch(error=>panel.report(error));};
     if(mode==='edit'){
@@ -97,8 +98,10 @@ export class NotePointSelect {
     };
     send.onclick=submit;input.onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)&&!e.isComposing){e.preventDefault();submit();}};
     this.position();input.focus();
+    this.composerObserver=new s.root.ownerDocument.defaultView.ResizeObserver(()=>this.position());
+    this.composerObserver.observe(box);
   }
-  closeComposer(focus=true){this.composer?.remove();this.composer=null;if(this.toolbar){this.toolbar.hidden=false;if(focus)this.toolbar.querySelector('button')?.focus();}this.position();}
+  closeComposer(focus=true){this.composerObserver?.disconnect();this.composerObserver=null;this.composer?.remove();this.composer=null;if(this.toolbar){this.toolbar.hidden=false;if(focus)this.toolbar.querySelector('button')?.focus();}this.position();}
   recordSaved(record){if(record.state==='running' && this.session?.path===record.capture.path)this.closeComposer(false);this.inline.refresh(record.capture.path);}
   selectedBounds(){
     const rects=[...this.selected.children].filter(el=>!el.hasAttribute('data-folio-note-ui')).map(el=>el.getBoundingClientRect()).filter(r=>r.width&&r.height);
@@ -113,7 +116,9 @@ export class NotePointSelect {
     this.toolbar.hidden=!visible;if(this.composer)this.composer.hidden=!visible;if(!visible)return;
     if(this.composer){
       this.toolbar.hidden=true;
-      const box=this.composer,width=box.offsetWidth,height=box.offsetHeight;
+      const box=this.composer;
+      box.style.maxHeight=`${Math.max(120,Math.min(bounds.bottom,win.innerHeight)-Math.max(8,bounds.top)-16)}px`;
+      const width=box.offsetWidth,height=box.offsetHeight;
       box.style.left=`${Math.max(8,Math.min(rect.right-width,win.innerWidth-width-8))}px`;
       box.style.top=`${Math.max(bounds.top+8,Math.min(rect.bottom+12,bounds.bottom-height-8,win.innerHeight-height-8))}px`;
       return;
@@ -122,7 +127,7 @@ export class NotePointSelect {
     this.toolbar.style.left=`${Math.max(8,Math.min(rect.left,win.innerWidth-width-8))}px`;
     this.toolbar.style.top=`${Math.max(bounds.top+5,Math.min(rect.top-height-7,bounds.bottom-height-5))}px`;
   }
-  clearSelection(){this.composer?.remove();this.composer=null;this.selected?.classList.remove('folio-note-point-selected');this.selected=null;this.capture=null;this.toolbar?.remove();this.toolbar=null;}
+  clearSelection(){this.composerObserver?.disconnect();this.composerObserver=null;this.composer?.remove();this.composer=null;this.selected?.classList.remove('folio-note-point-selected');this.selected=null;this.capture=null;this.toolbar?.remove();this.toolbar=null;}
   async locate(panel,capture,range=capture){
     const source=await this.plugin.app.vault.read(this.plugin.noteStore.file(capture.path));
     if(hash(source)!==capture.version){if(range!==capture)throw new UserError('笔记已改变，此引用对应旧版本，请重新提问。');capture=relocateCapture(capture,source);range=capture;}
