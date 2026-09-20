@@ -1,0 +1,43 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {mkdir,writeFile} from 'node:fs/promises';
+const root=process.env.FOLIO_REVIEW_TEST_ROOT||'/private/tmp/folio-review-native';
+const browser=await chromium.connectOverCDP('http://127.0.0.1:9236');
+const page=browser.contexts()[0].pages().find(p=>p.url().startsWith('app://obsidian.md/'));
+const path='导出弹窗测试/原文.md',source='这是一段用于验证导出位置的合成原文。';
+const folder='Folio/导出弹窗验证-'+Date.now(),target=folder+'/整理结果.md',errors=[];
+page.on('pageerror',e=>errors.push(e.message));
+try{
+ assert.equal(await page.evaluate(()=>app.vault.adapter.getBasePath()),root+'/.test-vault');
+ await page.evaluate(async({path,source})=>{
+  await app.plugins.unloadPlugin('folio-codex');await app.plugins.loadPlugin('folio-codex');const p=app.plugins.plugins['folio-codex'];await p.ready;
+  if(!app.vault.getAbstractFileByPath('导出弹窗测试'))await app.vault.createFolder('导出弹窗测试');
+  const f=app.vault.getAbstractFileByPath(path);if(f)await app.vault.modify(f,source);else await app.vault.create(path,source);
+  await p.state.mutate(d=>{delete d.notes?.[path];});app.workspace.rightSplit.collapse();await p.openNote(app.vault.getAbstractFileByPath(path));
+ },{path,source});
+ await page.locator('.folio-note-point-mode p').filter({hasText:source}).click();
+ await page.evaluate(async path=>{const p=app.plugins.plugins['folio-codex'];await p.noteStore.record(path,{id:'export-test',capture:p.pointSelect.capture,message:'如何整理？',mode:'ask',state:'answered',result:{answer:'保留原文和结论。',citations:[]}});for(const v of p.noteViews)if(v.path===path)await v.reloadRecords();p.pointSelect.inline.refresh(path);},path);
+ const card=page.locator('.folio-inline-card');await card.locator(':scope > summary').click();
+ const count=()=>page.evaluate(()=>app.vault.getFiles().length),before=await count();
+ await card.locator('.folio-discussion-export').click();const modal=page.locator('.folio-export-modal');await modal.waitFor();
+ assert.equal(await modal.getByRole('textbox',{name:'保存目录',exact:true}).inputValue(),'导出弹窗测试');
+ assert.match(await modal.getByRole('textbox',{name:'文件名',exact:true}).inputValue(),/^原文-讨论-\d{4}-\d{2}-\d{2}\.md$/);
+ assert.equal(await count(),before);await modal.getByRole('button',{name:'取消',exact:true}).click();assert.equal(await count(),before);
+ await card.locator('.folio-discussion-export').click();
+ const dir=modal.getByRole('textbox',{name:'保存目录',exact:true}),name=modal.getByRole('textbox',{name:'文件名',exact:true}),confirm=modal.locator('.folio-export-confirm');
+ await name.fill('原文.md');assert.equal(await confirm.isDisabled(),true);assert.match(await modal.getByRole('status').textContent(),/同名/);
+ await name.fill('整理结果');await dir.fill('../越界');assert.equal(await confirm.isDisabled(),true);
+ await dir.fill(folder);assert.equal(await confirm.isEnabled(),true);assert.equal(await page.evaluate(folder=>!!app.vault.getAbstractFileByPath(folder),folder),false);
+ assert.equal(await modal.locator('.folio-export-preview').textContent(),'保存到：'+target);
+ await mkdir(root+'/test-results',{recursive:true});await page.screenshot({path:root+'/test-results/export-modal.png'});
+ await confirm.click();await modal.waitFor({state:'hidden'});
+ const saved=await page.evaluate(async({path,target})=>({body:await app.vault.read(app.vault.getAbstractFileByPath(target)),source:await app.vault.read(app.vault.getAbstractFileByPath(path))}),{path,target});
+ assert.equal(saved.source,source);assert.match(saved.body,/\.\/\.\.\/\.\.\//);assert.match(saved.body,/如何整理/);assert.match(saved.body,/保留原文和结论/);
+ await card.locator('.folio-discussion-export').click();await modal.getByRole('button',{name:'选择目录',exact:true}).click();
+ await page.locator('.prompt-input').fill('笔记库根目录');await page.locator('.suggestion-item').filter({hasText:'笔记库根目录'}).click();assert.equal(await dir.inputValue(),'');
+ await modal.getByRole('button',{name:'取消',exact:true}).click();
+ await card.getByRole('button',{name:'查看详情与引用'}).click();await page.locator('.folio-note-result .folio-discussion-export').click();await modal.waitFor();
+ assert.equal(await dir.inputValue(),'导出弹窗测试');await modal.getByRole('button',{name:'取消',exact:true}).click();
+ assert.deepEqual(errors,[]);const result={defaultFolder:true,editableFilename:true,pathPreview:true,cancelNoWrite:true,folderPicker:true,newFolders:true,collisionBlocked:true,traversalBlocked:true,sourceLink:true,sourceUnchanged:true,bothEntrypoints:true,pageErrors:0};
+ await writeFile(root+'/test-results/export-modal-result.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+}catch(error){await page.screenshot({path:root+'/test-results/export-modal-failure.png'});throw error;}finally{await browser.close();}

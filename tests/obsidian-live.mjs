@@ -40,6 +40,7 @@ try {
   });
   console.log(JSON.stringify(status));
   assert.equal(status.vault, root + '/.test-vault'); assert.equal(status.loaded, true);
+  if (['notes','inline','point','follow'].includes(mode)) await page.evaluate(()=>app.workspace.rightSplit.expand());
   if (mode === 'shutdown') {
     await page.evaluate(() => app.plugins.unloadPlugin(window.folioTestPluginId));
     assert.equal(await page.locator('.folio-workbench').count(), 0);
@@ -58,6 +59,7 @@ try {
     const entry=page.locator('[data-folio-entry]');assert.equal(await entry.count(),1);
     assert.equal(await page.locator('.side-dock-ribbon-action[aria-label="页间：对当前笔记修改 / 提问"],.side-dock-ribbon-action[aria-label="页间：HTML 点选留言"]').count(),0);
     await entry.click();await page.locator('.folio-note-point-mode p').filter({hasText:'直接在这里'}).click();
+    await page.locator('.folio-note-panel-toggle').click();
     await page.locator('.folio-note-panel textarea').fill('统一入口草稿');await entry.click();
     assert.equal(await page.locator('.folio-note-panel textarea').inputValue(),'统一入口草稿');
     assert.equal(await page.locator('.prompt-input').count(),0);assert.equal(await page.locator('.folio-workbench').count(),0);
@@ -132,7 +134,7 @@ try {
     },{notePath,source});
     const rootEl=page.locator('.folio-note-point-mode'),panel=page.locator('.folio-note-panel');
     const repeat=rootEl.locator('p').filter({hasText:/^重复的句子。$/});await repeat.nth(1).waitFor();
-    await repeat.nth(1).hover();await page.locator('.folio-note-point-hover').waitFor();
+    await page.mouse.move(0,0);await repeat.nth(1).hover();await page.locator('.folio-note-point-hover').waitFor();
     await repeat.nth(1).click();await page.locator('.folio-note-point-tools').waitFor();
     assert.match(await page.locator('.folio-note-point-label').textContent(),/第 11 行/);
     assert.equal(await page.evaluate(()=>app.plugins.plugins[window.folioTestPluginId].pointSelect.capture.start),source.lastIndexOf('重复的句子。'));
@@ -150,6 +152,7 @@ try {
     await page.screenshot({path:root+'/test-results/obsidian-point-select.png'});
     await page.keyboard.press('Escape');await page.locator('.folio-note-point-tools').waitFor({state:'detached'});assert.equal(await page.locator('.folio-note-point-mode').count(),0);
     assert.equal(await readFile(root+'/.test-vault/'+notePath,'utf8'),source);
+    await page.evaluate(()=>app.workspace.revealLeaf(app.workspace.getLeavesOfType('folio-note-comments')[0]));
     await panel.locator('.folio-note-point-toggle').click();await rootEl.locator('h1').click();
     await page.evaluate(async notePath=>{const file=app.vault.getAbstractFileByPath(notePath);await app.vault.modify(file,(await app.vault.read(file))+'\n新的段落。\n');},notePath);
     await page.locator('.folio-note-point-tools').waitFor({state:'detached'});
@@ -194,7 +197,7 @@ try {
     await page.locator('.folio-note-panel').waitFor({state:'detached'});
     await page.evaluate(notePath=>app.workspace.getLeavesOfType('markdown').find(l=>l.view.file?.path===notePath).view.previewMode.rerender(true),notePath);
     await cards.waitFor();assert.equal(await page.locator('.folio-note-point-mode').count(),0);
-    await cards.locator('summary').click();await cards.locator('button').click();await page.locator('.folio-note-answer').waitFor();
+    await cards.locator('summary').click();await cards.getByRole('button',{name:'查看详情与引用'}).click();await page.locator('.folio-note-answer').waitFor();
     // Reload tests persisted state and postprocessor startup, not merely in-memory UI.
     await page.evaluate(async()=>{await app.plugins.unloadPlugin(window.folioTestPluginId);await app.plugins.loadPlugin(window.folioTestPluginId);await app.plugins.plugins[window.folioTestPluginId].ready;});
     await page.evaluate(notePath=>app.workspace.getLeavesOfType('markdown').find(l=>l.view.file?.path===notePath).view.previewMode.rerender(true),notePath);
@@ -210,12 +213,14 @@ try {
     const editCard=cards.filter({hasText:'待审阅'});await editCard.waitFor();await editCard.locator('summary').click();await editCard.getByRole('button',{name:'审阅修改'}).click();
     await page.locator('.folio-note-apply').waitFor();assert.equal(await readFile(root+'/.test-vault/'+notePath,'utf8'),source);
     await page.evaluate(async({notePath,source})=>app.vault.modify(app.vault.getAbstractFileByPath(notePath),'新增内容。\n\n'+source),{notePath,source});
-    await until(async()=>await cards.count()===0);
+    const readAnchors=()=>cards.evaluateAll(elements=>elements.map(el=>{const block=el.parentElement.parentElement;return app.plugins.plugins[window.folioTestPluginId].pointSelect.sections.get(block)?.getSectionInfo(block)?.lineStart;}).sort((a,b)=>a-b));
+    await until(async()=>JSON.stringify(await readAnchors())==='[4,6,8]');
+    assert.deepEqual(await readAnchors(),[4,6,8]);
     assert.equal(await page.locator('.folio-note-history-item').count(),3);
     await page.evaluate(()=>app.plugins.unloadPlugin(window.folioTestPluginId));
     assert.equal(await page.locator('.folio-inline-thread,.folio-inline-composer').count(),0);
     await page.evaluate(async()=>{await app.plugins.loadPlugin(window.folioTestPluginId);});
-    console.log('原地批注通过：输入/草稿、即时问题卡片、重复段落精确挂靠、答案展开、文本安全、关闭与重载恢复、失败保留、版本变化取消挂靠、卸载清理、源码无标记。');
+    console.log('原地批注通过：输入/草稿、即时问题卡片、重复段落精确挂靠、答案展开、文本安全、关闭与重载恢复、失败保留、前文插入后准确迁移挂靠、卸载清理、源码无标记。');
   } else if (mode === 'follow') {
     const names=['跟随甲.md','跟随乙.md','画布测试.excalidraw.md'];
     await page.evaluate(async names=>{
@@ -280,6 +285,7 @@ try {
     };
     await page.evaluate(()=>app.commands.executeCommandById(window.folioTestPluginId+':note-open'));
     assert.equal(await page.locator('.prompt-input').count(),0);
+    await page.locator('.folio-note-panel-toggle').click();
     const panel=page.locator('.folio-note-panel');await panel.locator('.folio-note-point-toggle').waitFor();await select();
     await panel.locator('textarea').fill('把这句话写得更简洁。');await panel.locator('.folio-note-send').click();
     await panel.locator('.folio-note-apply').waitFor();
@@ -303,7 +309,7 @@ try {
     await page.screenshot({path:root+'/test-results/obsidian-markdown.png'});
     await select('edit');await panel.locator('textarea').fill('精简');await panel.locator('.folio-note-send').click();await panel.locator('.folio-note-apply').waitFor();
     await page.evaluate(async({notePath,source})=>app.vault.modify(app.vault.getAbstractFileByPath(notePath),source+'\n外部新增内容。\n'),{notePath,source});
-    await panel.locator('.folio-note-apply').click();await panel.locator('.folio-note-status').filter({hasText:'笔记已改变'}).waitFor();
+    await panel.locator('.folio-note-apply').click();await panel.locator('.folio-note-status').filter({hasText:'预览后笔记已变化'}).waitFor();
     assert.match(await readFile(root+'/.test-vault/'+notePath,'utf8'),/外部新增内容/);
     await select('ask');await page.evaluate(()=>{app.plugins.plugins[window.folioTestPluginId].noteGenerate=({signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('cancelled')),{once:true}));});
     await panel.locator('textarea').fill('取消测试');await panel.locator('.folio-note-send').click();await panel.locator('.folio-note-stop').click();

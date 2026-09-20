@@ -2,6 +2,7 @@ import { MarkdownView, Notice } from 'obsidian';
 import { captureSection } from './notes.js';
 import { hash, UserError } from '../server/documents.js';
 import { InlineNotes } from './inline-notes.js';
+import { relocateCapture } from './review.js';
 
 
 export class NotePointSelect {
@@ -26,6 +27,9 @@ export class NotePointSelect {
     const root=view.containerEl.querySelector('.markdown-reading-view > .markdown-preview-view');if(!root)throw new UserError('阅读视图尚未准备好，请重试。');
     const s=this.session={panel,path,leaf,view,root,previousMode,generation:++this.generation};
     root.classList.add('folio-note-point-mode');
+    const details=view.addAction('messages-square','页间：审稿与历史',()=>{this.plugin.notePanel(file).catch(error=>new Notice(error.message));});
+    details.addClass('folio-note-panel-toggle');details.setText('审稿与历史');
+    s.details=details;
     const doc=root.ownerDocument,win=doc.defaultView;
     const over=e=>{const hit=this.find(e.target);if(this.hover===hit?.el)return;this.hover?.classList.remove('folio-note-point-hover');this.hover=hit?.el;this.hover?.classList.add('folio-note-point-hover');};
     const leave=()=>{this.hover?.classList.remove('folio-note-point-hover');this.hover=null;};
@@ -68,9 +72,9 @@ export class NotePointSelect {
     }
     const cancel=toolbar.createEl('button',{text:'×',attr:{'aria-label':'取消高亮'}});cancel.onclick=()=>this.clearSelection();this.position();
   }
-  async openComposer(capture,mode){
+  async openComposer(capture,mode,{replyId=null}={}){
     const s=this.session,selected=this.selected;if(!s)return;
-    await s.panel.useCapture(capture,mode,{focus:false});
+    await s.panel.useCapture(capture,mode,{focus:false,replyId});
     if(this.session!==s || this.selected!==selected)return;
     this.closeComposer(false);
     this.hover?.classList.remove('folio-note-point-hover');this.hover=null;
@@ -96,10 +100,15 @@ export class NotePointSelect {
   }
   closeComposer(focus=true){this.composer?.remove();this.composer=null;if(this.toolbar){this.toolbar.hidden=false;if(focus)this.toolbar.querySelector('button')?.focus();}this.position();}
   recordSaved(record){if(record.state==='running' && this.session?.path===record.capture.path)this.closeComposer(false);this.inline.refresh(record.capture.path);}
+  selectedBounds(){
+    const rects=[...this.selected.children].filter(el=>!el.hasAttribute('data-folio-note-ui')).map(el=>el.getBoundingClientRect()).filter(r=>r.width&&r.height);
+    if(!rects.length)return this.selected.getBoundingClientRect();
+    return {left:Math.min(...rects.map(r=>r.left)),right:Math.max(...rects.map(r=>r.right)),top:Math.min(...rects.map(r=>r.top)),bottom:Math.max(...rects.map(r=>r.bottom))};
+  }
   position(){
     if(!this.toolbar || !this.selected || !this.session)return;
     if(!this.selected.isConnected){this.clearSelection();return;}
-    const rect=this.selected.getBoundingClientRect(),bounds=this.session.root.getBoundingClientRect(),win=this.session.root.ownerDocument.defaultView;
+    const rect=this.selectedBounds(),bounds=this.session.root.getBoundingClientRect(),win=this.session.root.ownerDocument.defaultView;
     const visible=rect.bottom>bounds.top && rect.top<bounds.bottom;
     this.toolbar.hidden=!visible;if(this.composer)this.composer.hidden=!visible;if(!visible)return;
     if(this.composer){
@@ -116,7 +125,7 @@ export class NotePointSelect {
   clearSelection(){this.composer?.remove();this.composer=null;this.selected?.classList.remove('folio-note-point-selected');this.selected=null;this.capture=null;this.toolbar?.remove();this.toolbar=null;}
   async locate(panel,capture,range=capture){
     const source=await this.plugin.app.vault.read(this.plugin.noteStore.file(capture.path));
-    if(hash(source)!==capture.version)throw new UserError('笔记已改变，此引用对应旧版本，请重新提问。');
+    if(hash(source)!==capture.version){if(range!==capture)throw new UserError('笔记已改变，此引用对应旧版本，请重新提问。');capture=relocateCapture(capture,source);range=capture;}
     const s=await this.enable(panel,capture.path);
     await s.leaf.openFile(this.plugin.noteStore.file(capture.path),{eState:{line:range.startLine-1}});
     // The reading renderer may virtualize sections until the requested line is visible.
@@ -135,7 +144,7 @@ export class NotePointSelect {
   }
   async stop(restore=true){
     const s=this.session;this.session=null;++this.generation;this.clearSelection();this.hover?.classList.remove('folio-note-point-hover');this.hover=null;
-    if(!s)return;s.cleanup?.();s.root.classList.remove('folio-note-point-mode');
+    if(!s)return;s.details?.remove();s.cleanup?.();s.root.classList.remove('folio-note-point-mode');
     if(restore && s.previousMode==='source' && s.view.file?.path===s.path && s.view.getMode()==='preview')await s.leaf.setViewState({type:'markdown',state:{...s.view.getState(),mode:'source'}});
     if(!s.panel.closed)s.panel.render();
   }

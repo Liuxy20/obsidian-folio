@@ -17,6 +17,7 @@ await copyFile(root + 'manifest.json', output + '/manifest.json');
 await copyFile(root + 'obsidian/styles.css', output + '/styles.css');
 await copyFile(root + 'obsidian/README.md', output + '/README.md');
 await copyFile(root + 'LICENSE', output + '/LICENSE');
+await copyFile(root + 'PRIVACY.md', output + '/PRIVACY.md');
 let licenses = '';
 for (const pkg of ['parse5', 'entities', 'diff', 'smol-toml', 'markdown-it', 'markdown-it/node_modules/entities', 'argparse', 'linkify-it', 'mdurl', 'punycode.js', 'uc.micro']) {
   const { readdir } = await import('node:fs/promises');
@@ -30,7 +31,7 @@ const zip = root + `dist/${manifest.id}-${manifest.version}.zip`;
 const tempZip = root + `dist/${manifest.id}-${manifest.version}.tmp.zip`;
 const { rm, rename } = await import('node:fs/promises');
 await rm(tempZip, { force: true });
-await exec('zip', ['-q', tempZip, ...['main.js','manifest.json','styles.css','README.md','LICENSE','THIRD-PARTY-LICENSES.txt'].map(f => manifest.id+'/' + f)], { cwd: root + 'dist/obsidian' });
+await exec('zip', ['-q', tempZip, ...['main.js','manifest.json','styles.css','README.md','LICENSE','PRIVACY.md','THIRD-PARTY-LICENSES.txt'].map(f => manifest.id+'/' + f)], { cwd: root + 'dist/obsidian' });
 await rename(tempZip, zip);
-await writeFile(zip + '.sha256', createHash('sha256').update(await readFile(zip)).digest('hex') + '\n');
+await writeFile(zip + '.sha256', createHash('sha256').update(await readFile(zip)).digest('hex') + `  ${manifest.id}-${manifest.version}.zip\n`);
 console.log(`插件包已生成：dist/${manifest.id}-${manifest.version}.zip`);

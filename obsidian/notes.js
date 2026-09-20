@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hash, UserError, MAX_DOCUMENT_BYTES } from '../server/documents.js';
+import { discussionMarkdown } from './conversation.js';
+import { defaultExportPath, checkExportTarget } from './export-path.js';
 
 export function captureNote(path, source, start, end = start) {
   if (typeof source !== 'string' || Buffer.byteLength(source) > MAX_DOCUMENT_BYTES) throw new UserError('笔记不能超过 5 MB。');
@@ -26,7 +28,7 @@ export function captureNote(path, source, start, end = start) {
     if(last<lines.length-1 && size+Buffer.byteLength(lines[last+1])+1<=24_000){size+=Buffer.byteLength(lines[++last])+1;added=true;}
     if(!added)break;
   }
-  return { path, version:hash(source), start,end,expected,startLine,endLine, context:lines.slice(first,last+1).map((text,i)=>({line:first+i+1,text:text.replace(/\r$/,'')})), partial:first>0 || last<lines.length-1, newline:source.includes('\r\n')?'\r\n':'\n' };
+  return { path, version:hash(source), start,end,expected,startLine,endLine, ambiguous:source.indexOf(expected)!==start||source.indexOf(expected,start+1)!==-1, prefix:source.slice(Math.max(0,start-80),start), suffix:source.slice(end,end+80), context:lines.slice(first,last+1).map((text,i)=>({line:first+i+1,text:text.replace(/\r$/,'')})), partial:first>0 || last<lines.length-1, newline:source.includes('\r\n')?'\r\n':'\n' };
 }
 
 export function validateNoteResult(result, capture, mode, preserveNumbers=true) {
@@ -56,7 +58,28 @@ export class NoteStore {
   }
   async thread(path){this.file(path);await this.state.queue.catch(()=>{});return structuredClone(this.state.data.notes?.[path] || {draft:null,records:[]});}
   async draft(path,draft){this.file(path);await this.state.mutate(data=>{data.notes ||= {}; const thread=data.notes[path] ||= {draft:null,records:[]};thread.draft=draft;});}
-  async record(path,record){this.file(path);await this.state.mutate(data=>{data.notes ||= {};const thread=data.notes[path] ||= {draft:null,records:[]};thread.records=[record,...thread.records.filter(r=>r.id!==record.id)].slice(0,30);});}
+  async record(path,record){this.file(path);await this.state.mutate(data=>{data.notes ||= {};const thread=data.notes[path] ||= {draft:null,records:[]};thread.records=[record,...thread.records.filter(r=>r.id!==record.id)];});}
+  async display(path,id,patch){
+    this.file(path);
+    await this.state.mutate(data=>{
+      const thread=data.notes?.[path];if(!thread?.records.some(r=>r.id===id))return;
+      thread.display ||= {};const display=thread.display[id] ||= {};
+      for(const key of ['open','historyOpen'])if(typeof patch[key]==='boolean')display[key]=patch[key];
+    });
+  }
+  async exportDiscussion(path,id,target=defaultExportPath(this.vault,path)){
+    const thread=await this.thread(path),record=thread.records.find(r=>r.id===id);
+    if(!record)throw new UserError('这条讨论不存在，请刷新后重试。');
+    checkExportTarget(this.vault,target);
+    const parts=target.split('/');parts.pop();
+    for(let i=1;i<=parts.length;i++){
+      const folder=parts.slice(0,i).join('/');
+      if(!this.vault.getAbstractFileByPath(folder))try{await this.vault.createFolder(folder);}catch(error){if(!Array.isArray(this.vault.getAbstractFileByPath(folder)?.children))throw error;}
+    }
+    // Recheck after async folder creation; create also refuses write-time collisions.
+    checkExportTarget(this.vault,target);
+    return this.vault.create(target,discussionMarkdown(record,target));
+  }
   async locked(path,fn){const old=this.locks.get(path)||Promise.resolve();const task=old.catch(()=>{}).then(fn);this.locks.set(path,task);try{return await task;}finally{if(this.locks.get(path)===task)this.locks.delete(path);}}
   async apply(record,checkEditor=()=>{}) {
     return this.locked(record.capture.path,async()=>{
@@ -96,4 +119,3 @@ export function captureSection(path, source, info) {
   const end=start+lines.slice(info.lineStart,info.lineEnd+1).join('').replace(/[\r\n]+$/,'').length;
   return captureNote(path,source,start,end);
 }
-

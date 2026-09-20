@@ -118,9 +118,13 @@ export class PluginState {
     await this.adapter.mkdir(this.directory);
     const file = `${this.directory}/state.json`;
     if (await this.adapter.exists(file)) {
-      const data = JSON.parse(await this.adapter.read(file));
-      if (!data || typeof data.local !== 'object' || typeof data.drafts !== 'object') throw new Error('页间草稿文件格式错误，请先备份插件 state.json。');
-      this.data = data;
+      const parse = text => {const data=JSON.parse(text);if(!data||typeof data.local!=='object'||typeof data.drafts!=='object')throw new Error('页间草稿文件格式错误，请先备份插件 state.json。');return data;};
+      try { this.data=parse(await this.adapter.read(file)); }
+      catch(error){
+        const previous=`${this.directory}/state.previous.json`;
+        if(!await this.adapter.exists(previous))throw error;
+        this.data=parse(await this.adapter.read(previous));this.recovered=true;
+      }
     }
   }
   async mutate(fn) {

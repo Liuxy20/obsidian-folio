@@ -3,8 +3,9 @@ import { randomBytes } from 'node:crypto';
 import { VaultStore, PluginState } from './vault-store.js';
 import { WorkspaceService } from './service.js';
 import { installClient } from './client.js';
-import { codexStatus, generateWithCodex, generateNoteWithCodex } from '../server/codex.js';
-import { NoteStore, captureNote } from './notes.js';
+import { codexStatus, generateWithCodex, generateNoteWithCodex, generateReviewWithCodex } from '../server/codex.js';
+import { captureNote } from './notes.js';
+import { ReviewStore } from './review-store.js';
 import { NoteView, NotePicker, NOTE_VIEW } from './note-view.js';
 import { NotePointSelect } from './point-select.js';
 import { UserError, inspect, MAX_IMPORT_BYTES } from '../server/documents.js';
@@ -125,7 +126,8 @@ export default class FolioPlugin extends Plugin {
     const directory = this.manifest.dir || `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
     this.store = new VaultStore(this.app.vault, directory);
     this.state = new PluginState(this.app.vault.adapter, directory);
-    this.noteStore=new NoteStore(this.app.vault,this.state,directory);
+    this.noteStore=new ReviewStore(this.app.vault,this.state,directory);
+    this.noteReview=args=>generateReviewWithCodex({...args,codexOptions:this.options()});
     this.noteGenerate=args=>generateNoteWithCodex({...args,codexOptions:this.options()});
     this.ready = this.state.init(); this.ready.catch(() => new Notice('页间草稿存储无法打开，请检查插件数据。'));
     this.registerView(VIEW, leaf => new FolioView(leaf, this));
@@ -133,6 +135,7 @@ export default class FolioPlugin extends Plugin {
     this.pointSelect=new NotePointSelect(this);
     this.registerEvent(this.app.workspace.on('active-leaf-change',leaf=>{if(leaf?.view instanceof MarkdownView)this.lastNoteEditor=leaf.view;this.scheduleNoteFollow();}));
     this.registerEvent(this.app.workspace.on('file-open',()=>this.scheduleNoteFollow()));
+    this.registerEvent(this.app.vault.on('rename',(file,oldPath)=>{this.renameQueue=(this.renameQueue||Promise.resolve()).catch(()=>{}).then(()=>this.renameNotes(file,oldPath));this.renameQueue.catch(e=>new Notice(e.message));}));
     this.app.workspace.onLayoutReady(()=>this.scheduleNoteFollow());
     const entry=this.addRibbonIcon('message-square-text','页间：批注当前文档',()=>this.openUnified().catch(e=>new Notice(e.message)));entry.dataset.folioEntry='true';
     this.addCommand({id:'open',name:'批注当前文档',callback:()=>this.openUnified().catch(e=>new Notice(e.message))});
@@ -174,18 +177,20 @@ export default class FolioPlugin extends Plugin {
     const landing=this.app.workspace.getLeavesOfType(VIEW).find(l=>!l.view.initialId&&!l.getViewState().state?.file);
     if(landing)await this.app.workspace.revealLeaf(landing);else await this.open();
   }
-  async notePanel(file){
+  async notePanel(file,{reveal=true}={}){
     await this.ready;if(file)this.noteStore.file(file.path);
     const leaf=this.app.workspace.getLeavesOfType(NOTE_VIEW)[0]||this.app.workspace.getRightLeaf(false);
     if(!leaf)throw new UserError('无法打开右侧面板。');
     if(leaf.view instanceof NoteView && leaf.view.controller && leaf.view.path!==file?.path){leaf.view.stop();await leaf.view.task;}
-    await leaf.setViewState({type:NOTE_VIEW,active:true,state:{file:file?.path||null}});await this.app.workspace.revealLeaf(leaf);return leaf.view;
+    await leaf.setViewState({type:NOTE_VIEW,active:reveal,state:{file:file?.path||null}});
+    await leaf.loadIfDeferred?.();
+    if(reveal)await this.app.workspace.revealLeaf(leaf);return leaf.view;
   }
   isNoteFile(file){return file?.extension==='md' && !file.path.endsWith('.excalidraw.md') && !this.app.metadataCache.getFileCache(file)?.frontmatter?.['excalidraw-plugin'];}
   currentNoteLeaf(){return this.app.workspace.getMostRecentLeaf();}
   async openCurrentNote(){
     const leaf=this.currentNoteLeaf(),file=leaf?.view?.file;
-    if(this.isNoteFile(file) && leaf.view instanceof MarkdownView){const panel=await this.notePanel(file);await this.pointSelect.enable(panel,file.path,{leaf});return panel;}
+    if(this.isNoteFile(file) && leaf.view instanceof MarkdownView){const panel=await this.notePanel(file,{reveal:false});await this.pointSelect.enable(panel,file.path,{leaf});return panel;}
     const panel=await this.notePanel(null);panel.render();return panel;
   }
   scheduleNoteFollow(){
@@ -193,6 +198,7 @@ export default class FolioPlugin extends Plugin {
     this.followTimer=setTimeout(()=>{this.followQueue=(this.followQueue||Promise.resolve()).catch(()=>{}).then(()=>this.followCurrentNote());this.followQueue.catch(e=>new Notice(e.message));},50);
   }
   async followCurrentNote(){
+    await this.renameQueue;
     const request=this.followRequest,leaf=this.currentNoteLeaf(),view=leaf?.view;
     const panel=this.app.workspace.getLeavesOfType(NOTE_VIEW).map(l=>l.view).find(v=>v instanceof NoteView && !v.closed);if(!panel || this.unloading)return;
     const file=view instanceof MarkdownView && this.isNoteFile(view.file)?view.file:null,path=file?.path||null;
@@ -207,11 +213,24 @@ export default class FolioPlugin extends Plugin {
     if(file && view.getMode()==='preview')await this.pointSelect.enable(panel,path,{leaf,passive:true});
     this.followLeaf=leaf;
   }
+  async renameNotes(file,oldPath){
+    await this.ready;
+    const paths=Object.keys(this.state.data.notes||{}).filter(p=>p===oldPath||p.startsWith(oldPath+'/'));
+    for(const old of paths){
+      const next=file.path+old.slice(oldPath.length);
+      const panels=[...this.noteViews].filter(p=>p.path===old);
+      for(const p of panels){p.stop();await p.task?.catch(()=>{});}
+      await this.pointSelect.stop(false);
+      await this.noteStore.rename(old,next);
+      for(const p of panels){p.path=next;if(p.capture)p.capture.path=next;await p.reloadRecords();await p.persist();}
+    }
+    this.scheduleNoteFollow();
+  }
   async openNote(file){
     if(!this.isNoteFile(file))throw new UserError('当前类型暂不支持正文批注，请打开 Markdown 笔记。');
     const existing=this.app.workspace.getLeavesOfType('markdown').find(l=>l.view.file?.path===file.path);
     const leaf=existing||this.app.workspace.getLeaf('tab');await leaf.openFile(file);await this.app.workspace.revealLeaf(leaf);
-    const panel=await this.notePanel(file);await this.pointSelect.enable(panel,file.path);return panel;
+    const panel=await this.notePanel(file,{reveal:false});await this.pointSelect.enable(panel,file.path);return panel;
   }
   async openNoteSelection(editor,ctx,mode){
     if(!this.isNoteFile(ctx.file))throw new UserError('请先打开 Markdown 笔记。');
